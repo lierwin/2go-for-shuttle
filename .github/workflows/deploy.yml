@@ -1,61 +1,52 @@
 name: Deploy to Shuttle
 
 on:
-  # 1️⃣ 正常代码推送触发
   push:
     branches: [ main ]
-
-  # 2️⃣ 手动点击触发
   workflow_dispatch:
-
-  # 3️⃣ 定时任务（每 2 天一次，UTC 0 点）
   schedule:
-    - cron: '0 0 */2 * *'
-
-  # 4️⃣ Uptime Kuma Webhook 触发（新增）
+    - cron: '0 0 */2 * *'  # 每2天运行一次(UTC时间0点)
   repository_dispatch:
-    types: [uptime_down]
-
+    types: [service-down-alert]
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # ---- 打印触发来源（方便你确认是不是 Kuma 触发的）----
-      - name: Show trigger source
-        run: |
-          echo "Triggered by: ${{ github.event_name }}"
-          echo "Payload:"
-          echo '${{ toJson(github.event.client_payload) }}'
-
-      # ---- 拉代码 ----
       - uses: actions/checkout@v4
-
-      # ---- 安装 Rust ----
+      
+      - name: Check Trigger Event
+        run: |
+          echo "Workflow triggered by: ${{ github.event_name }}"
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            echo "触发事件类型 (Event Type): ${{ github.event.action }}"
+            echo "收到来自 Uptime Kuma 的下线通知，开始执行自动恢复部署流程..."
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "工作流被手动触发，开始执行部署..."
+          else
+            echo "工作流由计划任务触发，开始执行部署..."
+          fi
+          
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
-      # ---- 安装指定版本 Shuttle CLI ----
       - name: Install specific version of Shuttle CLI
         run: |
           cargo install cargo-shuttle --version 0.52.0 --locked --force
 
-      # ---- 更新依赖 ----
       - name: Update Cargo dependencies
         run: |
           cargo update
 
-      # ---- 生成 Shuttle.toml ----
       - name: Create Shuttle.toml
         run: |
           echo 'name = "shuttle-app"' > Shuttle.toml
 
-      # ---- 部署 ----
       - name: Deploy to Shuttle
         env:
           SHUTTLE_API_KEY: ${{ secrets.SHUTTLE_API_KEY }}
         run: |
-          cargo shuttle project create --name shuttle-app || true
+          cargo shuttle project create --name shuttle-app
           cargo shuttle deploy --name shuttle-app
